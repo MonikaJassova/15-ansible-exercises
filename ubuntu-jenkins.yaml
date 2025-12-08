@@ -1,0 +1,41 @@
+- name: Update apt repo cache
+  apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+
+- name: Install java 17
+  apt: name=openjdk-17-jdk 
+
+- name: Add GPG keys
+  apt_key:
+    url: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+    state: present
+
+- name: Add Jenkins debian package repository
+  apt_repository:
+    repo: deb http://pkg.jenkins.io/debian-stable binary/
+    filename: /etc/apt/sources.list.d/jenkins
+    state: present
+    
+- name: Update apt repo cache
+  apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+
+- name: Install Jenkins
+  apt: name=jenkins
+
+- name: Start Jenkins service
+  service:
+    name: jenkins
+    state: started
+
+- name: Install Docker
+  apt: name=docker.io
+
+- name: Add jenkins user to docker group
+  user:
+    name: jenkins
+    groups: docker
+    append: yes
+
+- name: Start Docker
+  service: 
+    name: docker
+    state: started
