@@ -13,3 +13,9 @@
     - copy over jar artifact
     - start the Java app with that user
     - verify the app is running successfully and print the result
+
+## Pushing an Artifact to Nexus
+
+1. Wrote [push-nexus.yaml](./push-nexus.yaml) Ansible Playbook and ran it (`ansible-playbook push-nexus.yaml`) to
+    - ensure provided jar file exists
+    - upload the file to a Maven repository on Nexus server and print the result

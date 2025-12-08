@@ -1,0 +1,43 @@
+---
+- name: Push jar to Nexus
+  hosts: localhost
+  gather_facts: False
+  vars_files:
+  - project-vars
+  tasks:
+    - name: Ensure jar exists
+      stat:
+        path: "build/libs/{{ app_name }}.jar"
+      register: file_data
+    - name: Report a missing file
+      debug:
+        msg: "Provided jar file does not exist"
+      when: not file_data.stat.exists
+    - name: Stop the upload
+      when: not file_data.stat.exists
+      fail:  
+        msg: "This step must fail due to unmet prerequisites." 
+    - name: Upload JAR file to Nexus
+      # This protects password from being displayed in task output. Comment out if you want to see the output for debugging
+      no_log: True
+      uri:        
+        # Notes on Nexus upload artifact URL:
+        # 1 - You can add group name in the url ".../com/my/group/{{ artifact_name }}..."
+        # 2 - The file name (my-app-1.0-SNAPSHOT.jar) must match the url path of (.../com/my-app/1.0-SNAPSHOT/my-app-1.0-SNAPSHOT.jar), otherwise it won't work
+        # 3 - You can only upload file with SNAPSHOT in the version into the maven-snapshots repo, so naming matters
+        url: "{{ nexus_url }}/repository/maven-snapshots/com/my/{{ artifact_name }}/{{ artifact_version }}/{{ artifact_name }}-{{ artifact_version }}.jar"
+        
+        method: PUT
+        src: ./build/libs/{{ app_name }}.jar
+        user: "{{ nexus_user }}"
+        password: "{{ nexus_password }}"
+        force_basic_auth: yes
+        
+        # With default "raw" body_format request form is too large, and causes 500 server error on Nexus (Form is larger than max length 200000), So we are setting it to 'json'
+        body_format: json
+        status_code: 201
+      register: response
+
+    - name: Print response
+      debug:
+        var: response
