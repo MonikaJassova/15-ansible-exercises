@@ -19,3 +19,10 @@
 1. Wrote [push-nexus.yaml](./push-nexus.yaml) Ansible Playbook and ran it (`ansible-playbook push-nexus.yaml`) to
     - ensure provided jar file exists
     - upload the file to a Maven repository on Nexus server and print the result
+
+## Installing Jenkins (different OS flavours)
+
+1. Wrote [install-jenkins.yaml](install-jenkins.yaml) and ran it (`ansible-playbook install-jenkins.yaml -e "ec2_image=ami-0a6793a25df710b06 ansible_user=ec2-user"` or `ansible-playbook install-jenkins.yaml -e "ec2_image=ami-004e960cde33f9146 ansible_user=ubuntu") to
+    - create a new EC2 instance based on Amazon Linux or Ubuntu image
+    - install and run Jenkins on EC2
+    - install nodejs, npm and docker on EC2 to be available for Jenkins builds
