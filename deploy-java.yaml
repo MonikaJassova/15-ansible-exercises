@@ -1,0 +1,79 @@
+---
+- name: Build Java Gradle app locally
+  hosts: localhost
+  gather_facts: False
+  tasks:
+    - name: Build Gradle application
+      command: /opt/gradle/gradle-8.1/bin/gradle clean build
+      become: True
+
+- name: Install java
+  hosts: webserver
+  tasks:
+    - name: Update apt repo and cache
+      apt: update_cache=yes force_apt_get=yes cache_valid_time=3600 # equivalent of apt-get update
+    - name: Install java 17
+      apt:
+        pkg:
+          - openjdk-17-jdk
+
+- name: Create new linux user for java app
+  hosts: webserver
+  vars_files:
+    - project-vars
+  tasks:
+    - name: Create linux user if not exists
+      user:
+        name: "{{linux_user}}"
+        comment: Java User
+        group: admin
+        state: present
+
+- name: Prepare remote env
+  hosts: webserver
+  vars_files:
+    - project-vars
+  tasks:
+   - name: Stop existing Java app process
+     shell: pgrep -f "{{ app_name }}\.jar" | xargs -r kill -TERM || true
+     async: 30
+     poll: 0
+     ignore_errors: yes
+
+   - name: Find JAR files in home
+     find:
+       paths: "{{ user_home_dir }}"
+       patterns: "*.jar"
+     register: jar_files
+
+   - name: Remove found JAR files
+     file:
+       path: "{{ item.path }}"
+       state: absent
+     loop: "{{ jar_files.files }}"
+
+- name: Deploy java app
+  hosts: webserver
+  vars_files:
+    - project-vars
+  become: True
+  become_user: "{{linux_user}}"
+  tasks:
+    - name: Copy JAR to remote server
+      copy:
+        src: "./build/libs/{{ app_name }}.jar"
+        dest: "{{ user_home_dir }}"
+        owner: "{{ linux_user }}"
+        group: "admin"
+        mode: '0755'
+    - name: Start java application
+      command: java -jar {{user_home_dir}}/{{app_name}}.jar &
+      # for non-blocking command continuing to run after Playbook execution
+      async: 1000 
+      poll: 0
+      register: result
+    - debug: msg="{{ result }}" 
+    - name: Check that app is running
+      shell: ps aux | grep java
+      register: app_status
+    - debug: msg={{app_status.stdout_lines}}

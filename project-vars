@@ -1,0 +1,3 @@
+linux_user: monika
+user_home_dir: /home/{{linux_user}}
+app_name: build-tools-exercises-1.0-SNAPSHOT
