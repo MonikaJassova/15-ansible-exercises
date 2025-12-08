@@ -1,0 +1,61 @@
+- name: Update all packages
+  yum:
+    name: '*'
+    state: latest
+
+- name: Install Java 17
+  yum:
+    name:
+      - java-17-amazon-corretto
+    state: present
+
+- name: Add Jenkins repo
+  get_url:
+    url: https://pkg.jenkins.io/redhat-stable/jenkins.repo
+    dest: /etc/yum.repos.d/jenkins.repo
+    mode: '0644'
+
+- name: Import Jenkins repo key
+  rpm_key:
+    state: present
+    key: https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+
+- name: Install Jenkins
+  yum:
+    name: jenkins
+    state: present
+
+- name: Install Docker
+  yum:
+    name:
+      - docker
+    state: present
+
+- name: Add Node.js (LTS) and npm repo
+  shell: |
+    curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash -
+  args:
+    executable: /bin/bash
+
+- name: Install nodejs
+  yum:
+    name: nodejs
+    state: present
+
+- name: Start and enable Jenkins service
+  systemd:
+    name: jenkins
+    state: started
+    enabled: yes
+
+- name: Add jenkins user to docker group
+  user:
+    name: jenkins
+    groups: docker
+    append: yes
+
+- name: Ensure docker service is running
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
