@@ -1,0 +1,87 @@
+---
+- name: Initial setup of the server
+  hosts: tag_Name_ansible-control-plane
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Update all packages
+      yum:
+        name: "*"
+        state: latest
+
+    - name: Install Ansible and boto3
+      yum:
+        name:
+          - ansible
+          - python3-boto3
+        state: present
+
+- name: Configure Ansible Control Plane
+  hosts: tag_Name_ansible-control-plane
+  become: true
+  gather_facts: true
+  vars:
+    local_playbooks_dir: ./ansible
+    os_user: ec2-user
+
+  tasks:
+    - name: Install mysql role from galaxy
+      community.general.ansible_galaxy_install:
+        type: role
+        name: geerlingguy.mysql
+
+    - name: Install ansible collection for ec2 module
+      community.general.ansible_galaxy_install:
+        type: collection
+        name: amazon.aws
+
+    - name: Ensure .aws dir exists
+      file: path=/home/{{os_user}}/.aws state=directory
+    
+    - name: Copy aws credentials
+      copy:
+          src: /home/mjassova/.aws/credentials
+          dest: /home/{{os_user}}/.aws/credentials
+      
+    # - name: Copy private ssh key for the app servers
+    #   copy:
+    #       src: "{{ item }}"
+    #       dest: /home/{{os_user}}/
+    #       mode: 0400
+    #   with_fileglob: ansible-*.pem
+
+    - name: Get location of ansible executable
+      command: 
+        cmd: which ansible
+      register: ansible_result
+
+    # - name: Create Ansible working directory
+    #   file:
+    #     path: "{{ ansible_result }}"
+    #     state: directory
+    #     mode: "0755"
+
+    - name: Copy ansible.cfg to server
+      copy:
+        src: ./ansible.cfg
+        dest: "/home/{{ os_user }}/ansible.cfg"
+        mode: "0644"
+
+    - name: Copy all playbooks and roles
+      copy:
+        src: "{{ local_playbooks_dir }}/"
+        dest: "/home/{{ os_user }}/playbooks/"
+
+    - name: Set proper ownership and permissions
+      file:
+        path: "{{ ansible_result }}"
+        owner: "{{ os_user }}"
+        group: "{{ os_user }}"
+        recurse: true
+        mode: "0755"
+
+    - name: Copy java jar file
+      copy:
+        src: build/libs/ansible-exercises-1.0-SNAPSHOT.jar
+        dest: /home/{{ os_user }}/
