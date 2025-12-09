@@ -33,3 +33,15 @@
     - install Docker (Ubuntu machine assumed) and start it
     - prepare Docker volume for Jenkins home
     - start Jenkins as a Docker container with volumes for Jenkins home and Docker itself to be able to execute Docker commands inside Jenkins
+
+## Provisioning and configuring Web server and Database server
+
+1. Wrote and ran [deploy-ansible.yaml](deploy-ansible.yaml) and ran it (`ansible-playbook deploy-ansible.yaml`) to
+    - provision and configure a dedicated Ansible control server on EC2 in a public subnet of a separate VPC
+    - configure the server with all needed tool (Ansible + boto3 with AWS credentials)
+    - copy needed Ansible playbooks and configuration for execution (private SSH keys to web and DB server)
+1. Wrote and ran [provision-web-db.yaml](provision-web-db.yaml) and ran it (`ansible-playbook provision-web-db.yaml`) to
+    - provision database and web servers (database server created in a private subnet of the same VPC as Ansible server, with NAT gateway to download stuff from Internet)
+1. Wrote and ran [configure-web-db.yaml](configure-web-db.yaml) and executed from the Ansible control server (because we can't access the database private IP address from outside VPC) (`ansible-playbook configure-web-db.yaml`) to
+    - install and start MySQL server on the EC2 instance without a public IP address using an existing mysql role
+    - deploys and runs the Java web application on another EC2 instance
