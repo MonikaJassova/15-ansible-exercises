@@ -61,12 +61,27 @@ Prerequisites:
 
 ## Provisioning and configuring Web server and Database server
 
-1. Wrote and ran [deploy-ansible.yaml](deploy-ansible.yaml) and ran it (`ansible-playbook deploy-ansible.yaml`) to
+1. Wrote [provision-ansible.yaml](provision-ansible.yaml) and ran it (`ansible-playbook provision-ansible.yaml`) to
     - provision and configure a dedicated Ansible control server on EC2 in a public subnet of a separate VPC
-    - configure the server with all needed tool (Ansible + boto3 with AWS credentials)
-    - copy needed Ansible playbooks and configuration for execution (private SSH keys to web and DB server)
-1. Wrote and ran [provision-web-db.yaml](provision-web-db.yaml) and ran it (`ansible-playbook provision-web-db.yaml`) to
-    - provision database and web servers (database server created in a private subnet of the same VPC as Ansible server, with NAT gateway to download stuff from Internet)
+1. Wrote [provision-web-db.yaml](provision-web-db.yaml) and ran it (`ansible-playbook provision-web-db.yaml`) to
+    - provision EC2 instances for DB and web servers (DB server created in a private subnet of the same VPC as Ansible server, with NAT gateway to download stuff from Internet)
+1. Wrote [configure-ansible.yaml](configure-ansible.yaml) and ran it (`ansible-playbook -i inventory_aws_ec2.yaml configure-ansible.yaml`) to
+    - configure Ansible server with all necessary tools (Ansible + boto3 with AWS credentials)
+    - copy necessary Ansible playbooks and configuration for execution (private SSH keys to web and DB server)
 1. Wrote and ran [configure-web-db.yaml](configure-web-db.yaml) and executed from the Ansible control server (because we can't access the database private IP address from outside VPC) (`ansible-playbook configure-web-db.yaml`) to
     - install and start MySQL server on the EC2 instance without a public IP address using an existing mysql role
     - deploys and runs the Java web application on another EC2 instance
+
+## Deploying Java MySQL Application in Kubernetes
+
+1. Added [Dockerfile](Dockerfile) for Java app, built and pushed image to ECR repository
+1. Created K8s configuration files for deployments (MySQL DB app with 1 replica), services for Java and MySQL applications as well as configMap and Secret for the DB connectivity.
+1. Created K8s configuration files for nginx-ingress controller chart and ingress for the java app.
+1. Created an EKS cluster using eksctl: `eksctl create cluster -f cluster.yaml`
+1. Wrote [deploy-k8s.yaml](deploy-k8s.yaml) playbook to
+    - deploy everything in the EKS cluster
+
+## Deploying MySQL Chart in Kubernetes
+
+1. Wrote [deploy-mysql.yaml](deploy-mysql.yaml) and ran it (`ansible-playbook deploy-mysql.yaml`) to
+    - deploy a MySQL DB with 3 replicas using a helm chart in place of the currently running single MySQL instance
