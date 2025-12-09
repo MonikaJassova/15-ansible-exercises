@@ -26,3 +26,10 @@
     - create a new EC2 instance based on Amazon Linux or Ubuntu image
     - install and run Jenkins on EC2
     - install nodejs, npm and docker on EC2 to be available for Jenkins builds
+
+## Installing Jenkins as a Docker Container
+
+1. Wrote [install-jenkins-docker.yaml](install-jenkins-docker.yaml) and ran it (`ansible-playbook install-jenkins-docker.yaml`) to
+    - install Docker (Ubuntu machine assumed) and start it
+    - prepare Docker volume for Jenkins home
+    - start Jenkins as a Docker container with volumes for Jenkins home and Docker itself to be able to execute Docker commands inside Jenkins
