@@ -1,0 +1,78 @@
+---
+- name: Install Docker and start Jenkins on remote host
+  hosts: jenkins
+  become: yes
+  gather_facts: yes
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker
+      package:
+        name: docker-ce
+        state: present
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Create jenkins_home volume if not exists
+      community.docker.docker_volume:
+        name: jenkins_home
+        state: present
+
+    - name: Get location of docker executable
+      command: 
+        cmd: which docker
+      register: docker_result
+
+    - name: Start Jenkins container
+      community.docker.docker_container:
+        name: jenkins
+        image: jenkins/jenkins:lts
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "8080:8080"
+          - "50000:50000"
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+          - "{{ docker_result.stdout }}:/usr/bin/docker"
+          - jenkins_home:/var/jenkins_home
+        detach: true
+      register: result
+    - debug: msg={{ result.container.Id }}
+
+    - name: Set Docker permission for Jenkins user
+      become: yes
+      file:
+        path: '/var/run/docker.sock'
+        mode: '666'
+
+    - name: Get volume info
+      community.docker.docker_volume_info:
+        name: jenkins_home
+      register: volume_info
+
+    - name: Get password
+      slurp:
+        src: "{{ volume_info.volume.Mountpoint }}/secrets/initialAdminPassword"
+      register: admin_password
+
+    - name: Print out Jenkins initial admin password
+      debug:
+        msg: "{{ (admin_password.content | b64decode) | trim }}"
