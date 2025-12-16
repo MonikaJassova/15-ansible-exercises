@@ -76,10 +76,13 @@ Prerequisites:
 
 1. Added [Dockerfile](Dockerfile) for Java app, built and pushed image to ECR repository
 1. Created K8s configuration files for deployments (MySQL DB app with 1 replica), services for Java and MySQL applications as well as configMap and Secret for the DB connectivity.
-1. Created K8s configuration files for nginx-ingress controller chart and ingress for the java app.
+1. Created K8s configuration files for Java application with its dependencies, and ingress for the Java app.
 1. Created an EKS cluster using eksctl: `eksctl create cluster -f cluster.yaml`
+1. Created a kubeconfig file with EKS cluster info for Ansible: `aws eks update-kubeconfig --name cluster-ansible --region eu-central-1 --kubeconfig kubeconfig_cluster-ansible`
+1. Installed required dependencies for [kubernetes.core.k8s module](https://docs.ansible.com/projects/ansible/latest/collections/kubernetes/core/k8s_module.html#ansible-collections-kubernetes-core-k8s-module): `pip3 install pyyaml kubernetes jsonpatch --user`
+1. Installed Ansible Galaxy collection for kubernetes: `ansible-galaxy collection install kubernetes.core`
 1. Wrote [deploy-k8s.yaml](deploy-k8s.yaml) playbook to
-    - deploy everything in the EKS cluster
+    - deploy everything in [k8s folder](./k8s/) to the EKS cluster (plus nginx Ingress Controller as a Helm chart)
 
 ## Deploying MySQL Chart in Kubernetes
 
