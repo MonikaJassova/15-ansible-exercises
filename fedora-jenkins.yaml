@@ -1,45 +1,41 @@
 - name: Update all packages
-  yum:
+  dnf:
     name: '*'
     state: latest
 
-- name: Install Java 17
-  yum:
+- name: Install Java 21 (required by current Jenkins LTS)
+  dnf:
     name:
-      - java-17-amazon-corretto
+      - java-21-openjdk
     state: present
 
-- name: Add Jenkins repo
+- name: Add Jenkins repo (repo_gpgcheck verifies repomd against repomd.xml.key)
   get_url:
     url: https://pkg.jenkins.io/redhat-stable/jenkins.repo
     dest: /etc/yum.repos.d/jenkins.repo
     mode: '0644'
 
-- name: Import Jenkins repo key
-  rpm_key:
-    state: present
-    key: https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
-
 - name: Install Jenkins
-  yum:
+  dnf:
     name: jenkins
     state: present
 
 - name: Install Docker
-  yum:
+  dnf:
     name:
       - docker
     state: present
 
-- name: Add Node.js (LTS) and npm repo
-  shell: |
-    curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash -
-  args:
-    executable: /bin/bash
+- name: Ensure docker group exists
+  group:
+    name: docker
+    state: present
 
-- name: Install nodejs
-  yum:
-    name: nodejs
+- name: Install Node.js and npm
+  dnf:
+    name:
+      - nodejs
+      - npm
     state: present
 
 - name: Start and enable Jenkins service

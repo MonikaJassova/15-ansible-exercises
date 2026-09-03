@@ -4,20 +4,26 @@
   become: yes
   gather_facts: yes
   tasks:
+    - name: Add Docker GPG key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Add Docker repository
+      deb822_repository:
+        name: docker
+        types: [deb]
+        uris: [https://download.docker.com/linux/ubuntu]
+        suites: ["{{ ansible_facts['distribution_release'] }}"]
+        components: [stable]
+        architectures: [amd64]
+        signed_by: /etc/apt/keyrings/docker.asc
+        state: present
+
     - name: Update apt cache
       apt:
         update_cache: yes
-        cache_valid_time: 3600
-
-    - name: Add Docker GPG key
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
-
-    - name: Add Docker repository
-      apt_repository:
-        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
-        state: present
 
     - name: Install Docker
       package:
@@ -36,7 +42,7 @@
         state: present
 
     - name: Get location of docker executable
-      command: 
+      command:
         cmd: which docker
       register: docker_result
 
@@ -60,8 +66,8 @@
     - name: Set Docker permission for Jenkins user
       become: yes
       file:
-        path: '/var/run/docker.sock'
-        mode: '666'
+        path: "/var/run/docker.sock"
+        mode: "666"
 
     - name: Get volume info
       community.docker.docker_volume_info:
@@ -72,6 +78,9 @@
       slurp:
         src: "{{ volume_info.volume.Mountpoint }}/secrets/initialAdminPassword"
       register: admin_password
+      retries: 20
+      delay: 15
+      until: admin_password is success
 
     - name: Print out Jenkins initial admin password
       debug:
