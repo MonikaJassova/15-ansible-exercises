@@ -1,3 +1,33 @@
 linux_user: monika
 user_home_dir: /home/{{linux_user}}
 app_name: build-tools-exercises-1.0-SNAPSHOT
+
+# Nexus
+nexus_user: monika
+nexus_password: 093aa5e8bb5ce8012322b76f
+nexus_url: http://164.30.24.12:8081
+artifact_name: build-tools-exercises
+artifact_version: 1.0-SNAPSHOT
+
+# T-Cloud Public ECS
+os_flavour: ubuntu # ubuntu or fedora
+tcloud_cloud: eu-de
+tcloud_images:
+  ubuntu: Standard_Ubuntu_24.04_amd64_bios_latest
+  fedora: Standard_Fedora_43_amd64_bios_latest
+tcloud_login_users:
+  ubuntu: ubuntu
+  fedora: linux
+tcloud_network: 3d38b7d5-7d85-4838-ae92-a8e0ea87dc08 # vpc-mjassova (subnet-mjassova 192.168.0.0/24)
+tcloud_external_network: admin_external_net
+tcloud_flavor: x1.large.2
+tcloud_key_name: KeyPair-mjassova2
+tcloud_private_key: /home/mjassova/.ssh/id_rsa
+tcloud_security_group: sg-mjassova
+tcloud_volume_size_gb: 20
+
+# MySQL connection for the Java app
+db_server: "db_host"
+db_user: "db_user"
+db_password: "db_password"
+db_name: "db_name"
