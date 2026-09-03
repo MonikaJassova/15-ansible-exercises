@@ -1,0 +1,69 @@
+---
+- name: Provision T-Cloud ECS instance
+  hosts: localhost
+  gather_facts: no
+  vars_files:
+    - project-vars
+  tasks:
+    - name: Launch ECS instance
+      openstack.cloud.server:
+        cloud: "{{ tcloud_cloud }}"
+        name: JenkinsServer
+        image: "{{ tcloud_images[os_flavour] }}"
+        flavor: "{{ tcloud_flavor }}"
+        key_name: "{{ tcloud_key_name }}"
+        security_groups:
+          - "{{ tcloud_security_group }}"
+        nics:
+          - net-id: "{{ tcloud_network }}"
+        boot_from_volume: yes
+        volume_size: "{{ tcloud_volume_size_gb }}"
+        terminate_volume: yes
+        wait: yes
+        timeout: 900
+        state: present
+      register: instance
+
+    - name: Allocate floating IP and associate it with the Jenkins server
+      openstack.cloud.floating_ip:
+        cloud: "{{ tcloud_cloud }}"
+        state: present
+        network: "{{ tcloud_external_network }}"
+        server: "{{ instance.server.name | default('JenkinsServer') }}"
+      register: fip
+
+    - name: Add new instance to host group
+      add_host:
+        hostname: "{{ fip.floating_ip.floating_ip_address }}"
+        groupname: launched
+        host_os: "{{ os_flavour }}"
+        ansible_user: "{{ tcloud_login_users[os_flavour] }}"
+        ansible_ssh_private_key_file: "{{ tcloud_private_key }}"
+      when: fip.floating_ip is defined
+
+    - name: Wait for SSH to come up
+      wait_for:
+        host: "{{ fip.floating_ip.floating_ip_address }}"
+        port: 22
+        delay: 10
+        timeout: 320
+        state: started
+      when: fip.floating_ip is defined
+
+- name: Configure Jenkins server
+  hosts: launched
+  become: yes
+  tasks:
+    - name: Include tasks for ubuntu server
+      include_tasks: ubuntu-jenkins.yaml
+      when: host_os == "ubuntu"
+
+    - name: Include tasks for fedora server
+      include_tasks: fedora-jenkins.yaml
+      when: host_os == "fedora"
+
+    - name: Print out Jenkins admin password
+      slurp:
+        src: /var/lib/jenkins/secrets/initialAdminPassword
+      register: jenkins_pwd
+    - debug: msg="{{ (jenkins_pwd.content | b64decode) | trim }}"

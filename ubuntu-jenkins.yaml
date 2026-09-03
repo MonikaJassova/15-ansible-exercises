@@ -1,22 +1,23 @@
 - name: Update apt repo cache
-  apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+  apt: update_cache=yes force_apt_get=yes
 
-- name: Install java 17
-  apt: name=openjdk-17-jdk 
+- name: Install java 21 (required by current Jenkins LTS)
+  apt: name=openjdk-21-jdk
 
-- name: Add GPG keys
-  apt_key:
-    url: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
-    state: present
+- name: Add Jenkins GPG key
+  get_url:
+    url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+    dest: /etc/apt/keyrings/jenkins.io-2026.key
+    mode: '0644'
 
 - name: Add Jenkins debian package repository
   apt_repository:
-    repo: deb http://pkg.jenkins.io/debian-stable binary/
-    filename: /etc/apt/sources.list.d/jenkins
+    repo: "deb [signed-by=/etc/apt/keyrings/jenkins.io-2026.key] https://pkg.jenkins.io/debian-stable binary/"
+    filename: jenkins
     state: present
     
 - name: Update apt repo cache
-  apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+  apt: update_cache=yes force_apt_get=yes
 
 - name: Install Jenkins
   apt: name=jenkins
@@ -25,6 +26,16 @@
   service:
     name: jenkins
     state: started
+
+- name: Add NodeSource repo for Node.js LTS
+  shell: curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+  args:
+    executable: /bin/bash
+
+- name: Install nodejs
+  apt:
+    name: nodejs
+    state: present
 
 - name: Install Docker
   apt: name=docker.io
