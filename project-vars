@@ -21,13 +21,26 @@ tcloud_login_users:
 tcloud_network: 3d38b7d5-7d85-4838-ae92-a8e0ea87dc08 # vpc-mjassova (subnet-mjassova 192.168.0.0/24)
 tcloud_external_network: admin_external_net
 tcloud_flavor: x1.large.2
-tcloud_key_name: KeyPair-mjassova2
-tcloud_private_key: /home/mjassova/.ssh/id_rsa
+tcloud_key_name: tcloud-plain
+tcloud_private_key: /home/mjassova/.ssh/tcloud-plain
+# where the key is copied to on the Ansible control server (see 5-configure-ansible.yaml)
+control_server_key_path: /home/ubuntu/.ssh/tcloud-plain
 tcloud_security_group: sg-mjassova
 tcloud_volume_size_gb: 20
 
 # MySQL connection for the Java app
 db_server: "db_host"
-db_user: "db_user"
-db_password: "db_password"
-db_name: "db_name"
+db_user: "appuser"
+db_password: "AppDb-Pass-2026"
+db_name: "buildtools"
+
+# Section 5: dedicated T-Cloud VPC (two networks + one NAT router) for Ansible control plane + web/DB
+vpc_cidr: 10.0.0.0/16
+vpc_public_net: ansible-vpc-public
+vpc_public_subnet_cidr: 10.0.1.0/24
+vpc_private_net: ansible-vpc-private
+vpc_private_subnet_cidr: 10.0.2.0/24
+vpc_router_name: ansible-vpc-router
+nat_gateway_name: ansible-vpc-nat
+my_ip: 164.30.14.196/32
+app_port: 8080
