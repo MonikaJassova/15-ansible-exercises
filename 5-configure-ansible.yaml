@@ -1,0 +1,116 @@
+---
+- name: Initial setup of the Ansible control server
+  hosts: ansible-control-plane
+  become: true
+  gather_facts: true
+  vars_files:
+    - project-vars
+  vars:
+    ansible_user: "{{ tcloud_login_users.ubuntu }}"
+    ansible_ssh_private_key_file: "{{ tcloud_private_key }}"
+  tasks:
+    - name: Update all packages
+      apt:
+        name: "*"
+        state: latest
+        update_cache: true
+
+    - name: Install Ansible and pip
+      apt:
+        name:
+          - ansible
+          - python3-pip
+        state: present
+
+    - name: Install openstacksdk below 4 (openstacksdk 4.x is incompatible with openstack.cloud 2.x)
+      command: pip3 install --user --break-system-packages "openstacksdk<4"
+      register: pip_os
+      changed_when: "'already satisfied' not in pip_os.stdout"
+
+- name: Configure Ansible Control Plane
+  hosts: ansible-control-plane
+  become: false
+  gather_facts: true
+  vars_files:
+    - project-vars
+  vars:
+    os_user: ubuntu
+    ansible_user: "{{ tcloud_login_users.ubuntu }}"
+    ansible_ssh_private_key_file: "{{ tcloud_private_key }}"
+  tasks:
+    - name: Install mysql role from galaxy
+      community.general.ansible_galaxy_install:
+        type: role
+        name: geerlingguy.mysql
+
+    - name: Make mysql role available under plain name
+      file:
+        src: "/home/{{ os_user }}/.ansible/roles/geerlingguy.mysql"
+        dest: "/home/{{ os_user }}/.ansible/roles/mysql"
+        state: link
+
+    - name: Install openstack cloud collection
+      community.general.ansible_galaxy_install:
+        type: collection
+        name: openstack.cloud
+
+    - name: Install mysql collection (required by the mysql role and seed queries)
+      community.general.ansible_galaxy_install:
+        type: collection
+        name: ansible.mysql
+
+    - name: Ensure .config/openstack dir exists
+      file:
+        path: "/home/{{ os_user }}/.config/openstack"
+        state: directory
+        mode: "0700"
+
+    - name: Copy openstack clouds.yaml
+      copy:
+        src: "{{ lookup('env', 'HOME') }}/.config/openstack/clouds.yaml"
+        dest: "/home/{{ os_user }}/.config/openstack/clouds.yaml"
+        mode: "0600"
+
+    - name: Ensure .ssh dir exists
+      file:
+        path: "/home/{{ os_user }}/.ssh"
+        state: directory
+        mode: "0700"
+
+    - name: Copy T-Cloud private key for web and DB servers
+      copy:
+        src: "{{ tcloud_private_key }}"
+        dest: "{{ control_server_key_path }}"
+        mode: "0400"
+
+    - name: Ensure playbooks dir exists
+      file:
+        path: "/home/{{ os_user }}/playbooks"
+        state: directory
+
+    - name: Copy playbooks for web and DB servers
+      copy:
+        src: ./ansible/
+        dest: "/home/{{ os_user }}/playbooks/"
+
+    - name: Copy project vars to playbooks dir
+      copy:
+        src: ./project-vars
+        dest: "/home/{{ os_user }}/playbooks/project-vars"
+
+    - name: Copy ansible.cfg to server
+      copy:
+        src: ./ansible.cfg
+        dest: "/home/{{ os_user }}/ansible.cfg"
+        mode: "0644"
+
+    - name: Copy ansible.cfg next to the playbooks
+      copy:
+        src: ./ansible.cfg
+        dest: "/home/{{ os_user }}/playbooks/ansible.cfg"
+        mode: "0644"
+
+    - name: Copy java jar file
+      copy:
+        src: "./build/libs/{{ app_name }}.jar"
+        dest: "/home/{{ os_user }}/"

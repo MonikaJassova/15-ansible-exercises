@@ -1,0 +1,182 @@
+---
+- name: Provision T-Cloud web and DB servers
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - project-vars
+  tasks:
+    - name: Ensure security group for web server
+      openstack.cloud.security_group:
+        cloud: "{{ tcloud_cloud }}"
+        name: web-sg
+        description: Security group for web server
+        state: present
+      register: web_sg
+
+    - name: Allow app port from my IP
+      openstack.cloud.security_group_rule:
+        cloud: "{{ tcloud_cloud }}"
+        security_group: "{{ web_sg.security_group.name }}"
+        protocol: tcp
+        port_range_min: "{{ app_port }}"
+        port_range_max: "{{ app_port }}"
+        remote_ip_prefix: "{{ my_ip }}"
+        direction: ingress
+        state: present
+
+    - name: Allow SSH to web server from my IP
+      openstack.cloud.security_group_rule:
+        cloud: "{{ tcloud_cloud }}"
+        security_group: "{{ web_sg.security_group.name }}"
+        protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+        remote_ip_prefix: "{{ my_ip }}"
+        direction: ingress
+        state: present
+
+    - name: Allow SSH to web server from the VPC
+      openstack.cloud.security_group_rule:
+        cloud: "{{ tcloud_cloud }}"
+        security_group: "{{ web_sg.security_group.name }}"
+        protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+        remote_ip_prefix: "{{ vpc_cidr }}"
+        direction: ingress
+        state: present
+
+    - name: Ensure security group for DB server
+      openstack.cloud.security_group:
+        cloud: "{{ tcloud_cloud }}"
+        name: db-sg
+        description: Security group for DB server (private)
+        state: present
+      register: db_sg
+
+    - name: Allow MySQL from the VPC only
+      openstack.cloud.security_group_rule:
+        cloud: "{{ tcloud_cloud }}"
+        security_group: "{{ db_sg.security_group.name }}"
+        protocol: tcp
+        port_range_min: 3306
+        port_range_max: 3306
+        remote_ip_prefix: "{{ vpc_cidr }}"
+        direction: ingress
+        state: present
+
+    - name: Allow SSH to DB server from the VPC only
+      openstack.cloud.security_group_rule:
+        cloud: "{{ tcloud_cloud }}"
+        security_group: "{{ db_sg.security_group.name }}"
+        protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+        remote_ip_prefix: "{{ vpc_cidr }}"
+        direction: ingress
+        state: present
+
+    - name: Launch web server on the public network
+      openstack.cloud.server:
+        cloud: "{{ tcloud_cloud }}"
+        name: web-server
+        image: "{{ tcloud_images.ubuntu }}"
+        flavor: "{{ tcloud_flavor }}"
+        key_name: "{{ tcloud_key_name }}"
+        security_groups:
+          - "{{ web_sg.security_group.name }}"
+        nics:
+          - net-name: "{{ vpc_public_net }}"
+        auto_ip: false
+        boot_from_volume: yes
+        volume_size: "{{ tcloud_volume_size_gb }}"
+        terminate_volume: yes
+        wait: yes
+        timeout: 900
+        state: present
+      register: web
+
+    - name: Allocate floating IP for the web server
+      openstack.cloud.floating_ip:
+        cloud: "{{ tcloud_cloud }}"
+        network: "{{ tcloud_external_network }}"
+        server: web-server
+        state: present
+      register: web_fip_alloc
+
+    - name: Launch DB server on the private network (no floating IP)
+      openstack.cloud.server:
+        cloud: "{{ tcloud_cloud }}"
+        name: db-server
+        image: "{{ tcloud_images.ubuntu }}"
+        flavor: "{{ tcloud_flavor }}"
+        key_name: "{{ tcloud_key_name }}"
+        security_groups:
+          - "{{ db_sg.security_group.name }}"
+        nics:
+          - net-name: "{{ vpc_private_net }}"
+        auto_ip: false
+        boot_from_volume: yes
+        volume_size: "{{ tcloud_volume_size_gb }}"
+        terminate_volume: yes
+        wait: yes
+        timeout: 900
+        state: present
+      register: db
+
+    - name: Gather port information to resolve private IPs
+      openstack.cloud.port_info:
+        cloud: "{{ tcloud_cloud }}"
+      register: ports
+
+    - name: Gather floating IP information
+      openstack.cloud.floating_ip_info:
+        cloud: "{{ tcloud_cloud }}"
+      register: fips
+
+    - name: Resolve private IPs and web server floating IP
+      set_fact:
+        web_ip: "{{ (ports.ports | selectattr('device_id', 'equalto', web.server.id) | first).fixed_ips[0].ip_address}}"
+        db_ip: "{{ (ports.ports | selectattr('device_id', 'equalto', db.server.id) | first).fixed_ips[0].ip_address}}"
+        web_fip: "{{ (fips.floating_ips | selectattr('port_id', 'equalto', (ports.ports | selectattr('device_id', 'equalto', web.server.id) | first).id) | first).floating_ip_address }}"
+
+    - name: Wait for SSH on web server (private IP)
+      wait_for:
+        host: "{{ web_ip }}"
+        port: 22
+        delay: 10
+        timeout: 600
+        state: started
+
+    - name: Wait for SSH on DB server (private IP, reachable via router)
+      wait_for:
+        host: "{{ db_ip }}"
+        port: 22
+        delay: 10
+        timeout: 600
+        state: started
+
+    - name: Write inventory for web and DB servers
+      copy:
+        content: |
+          [web]
+          {{ web_ip }} ansible_user={{ tcloud_login_users.ubuntu }} ansible_ssh_private_key_file={{ control_server_key_path }}
+
+          [db]
+          {{ db_ip }} ansible_user={{ tcloud_login_users.ubuntu }} ansible_ssh_private_key_file={{ control_server_key_path }}
+
+          [webdb:children]
+          web
+          db
+
+          [webdb:vars]
+          db_ip={{ db_ip }}
+          web_fip={{ web_fip }}
+        dest: /home/ubuntu/playbooks/inventory-web-db
+        mode: "0644"
+
+    - name: Print server addresses
+      debug:
+        msg:
+          - "Web server: private {{ web_ip }}, public {{ web_fip }}"
+          - "DB server: private {{ db_ip }} (no public IP)"

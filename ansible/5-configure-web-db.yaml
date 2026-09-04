@@ -1,0 +1,101 @@
+---
+- name: Configure MySQL database server
+  hosts: db
+  become: true
+  gather_facts: true
+  vars_files:
+    - project-vars
+  vars:
+    mysql_databases:
+      - name: "{{ db_name }}"
+        state: present
+    mysql_users:
+      - name: "{{ db_user }}"
+        password: "{{ db_password }}"
+        host: "%"
+        priv: "{{ db_name }}.*:ALL"
+  tasks:
+    - name: Install and configure MySQL using existing role
+      include_role:
+        name: mysql
+
+    - name: Create team_members table
+      ansible.mysql.mysql_query:
+        login_user: "{{ db_user }}"
+        login_password: "{{ db_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        login_db: "{{ db_name }}"
+        query:
+          - >
+            CREATE TABLE IF NOT EXISTS team_members
+            (member_id INT AUTO_INCREMENT PRIMARY KEY,
+             member_name VARCHAR(100) NOT NULL UNIQUE,
+             member_role VARCHAR(100) NOT NULL)
+
+    - name: Seed sample team members (idempotent via INSERT IGNORE)
+      ansible.mysql.mysql_query:
+        login_user: "{{ db_user }}"
+        login_password: "{{ db_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        login_db: "{{ db_name }}"
+        query:
+          - >
+            INSERT IGNORE INTO team_members (member_name, member_role)
+            VALUES ('Monika Jassova', 'DevOps Engineer'),
+                   ('Alex Weber', 'Java Developer'),
+                   ('Sara Klein', 'QA Engineer')
+
+- name: Deploy Java web application
+  hosts: web
+  become: true
+  gather_facts: true
+  vars_files:
+    - project-vars
+  tasks:
+    - name: Update all packages
+      apt:
+        name: "*"
+        state: latest
+        update_cache: true
+
+    - name: Install Java 17 runtime
+      apt:
+        name: openjdk-17-jre-headless
+        state: present
+
+    - name: Stop existing Java app process
+      shell: pgrep -f "{{ app_name }}\.jar" | xargs -r kill -TERM || true
+      ignore_errors: yes
+
+    - name: Copy jar artifact
+      copy:
+        src: "/home/ubuntu/{{ app_name }}.jar"
+        dest: /opt/app/
+        mode: "0755"
+
+    - name: Start Java application
+      command: java -jar /opt/app/{{ app_name }}.jar
+      environment:
+        DB_SERVER: "{{ db_ip }}"
+        DB_USER: "{{ db_user }}"
+        DB_PWD: "{{ db_password }}"
+        DB_NAME: "{{ db_name }}"
+      async: 1000
+      poll: 0
+      register: app_start
+
+    - name: Wait for app to listen on its port
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ app_port }}"
+        timeout: 120
+        state: started
+
+    - name: Verify app responds with team data
+      uri:
+        url: "http://127.0.0.1:{{ app_port }}/get-data"
+        status_code: 200
+      register: app_check
+
+    - debug:
+        msg: "{{ app_check.json }}"
