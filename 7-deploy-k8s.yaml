@@ -6,6 +6,7 @@
   gather_facts: false
   vars_files:
     - project-vars
+    - secrets.yaml
   vars:
     image_ref: "{{ registry_host }}/{{ registry_org }}/{{ image_name }}:{{ image_tag }}"
     ingress_release: ingress-controller

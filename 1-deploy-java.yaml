@@ -26,6 +26,7 @@
   become: True
   vars_files:
     - project-vars
+    - secrets.yaml
   tasks:
     - name: Create linux user if not exists
       user:
@@ -39,6 +40,7 @@
   become: True
   vars_files:
     - project-vars
+    - secrets.yaml
   tasks:
     - name: Stop existing Java app process
       shell: pgrep -f "{{ app_name }}\.jar" | xargs -r kill -TERM || true
@@ -62,6 +64,7 @@
   hosts: webserver
   vars_files:
     - project-vars
+    - secrets.yaml
   become: True
   become_user: "{{linux_user}}"
   tasks:

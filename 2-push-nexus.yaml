@@ -4,6 +4,7 @@
   gather_facts: False
   vars_files:
   - project-vars
+  - secrets.yaml
   tasks:
     - name: Ensure jar exists
       stat:

@@ -8,7 +8,7 @@ Prerequisites:
 
 - A T Cloud Public ECS server (Ubuntu image) with 1 GB memory and SSH key added, its IP registered in the [hosts file](hosts) under the `webserver` group (with `ansible_user` and `ansible_ssh_private_key_file`)
 - Gradle (8.x, see [mise.toml](mise.toml)) to build the Java app
-- App and DB connection variables in [project-vars](project-vars)
+- App and DB connection variables in [project-vars](project-vars) and vault-encrypted [secrets.yaml](secrets.yaml)
 
 1. Wrote [1-deploy-java.yaml](./1-deploy-java.yaml) Ansible Playbook and ran it (`ansible-playbook 1-deploy-java.yaml`) to
    - build the app locally (`gradle clean build`)
@@ -25,7 +25,7 @@ Prerequisites:
 Prerequisites:
 
 - The jar already built at `build/libs/{{ app_name }}.jar` (run playbook 1, or `gradle clean build`) — the playbook fails by design if it is missing
-- Nexus URL, user and password in [project-vars](project-vars)
+- Nexus URL and user in [project-vars](project-vars), password in vault-encrypted [secrets.yaml](secrets.yaml)
 
 1. Wrote [2-push-nexus.yaml](./2-push-nexus.yaml) Ansible Playbook and ran it (`ansible-playbook 2-push-nexus.yaml`) to
    - ensure provided jar file exists
@@ -67,7 +67,7 @@ Prerequisites:
 - Ansible (14.x, see [mise.toml](mise.toml)) with the `openstack.cloud` collection and `openstacksdk<4` installed in the ansible venv (openstacksdk 4.x is incompatible with openstack.cloud 2.x)
 - The `opentelekomcloud.cloud` collection and the `otcextensions` Python package in the same venv (OTC NAT gateway API, used in [5-provision-ansible.yaml](5-provision-ansible.yaml))
 - SSH private key for the `tcloud_key_name` key pair (`tcloud_private_key` in [project-vars](project-vars))
-- VPC (two networks, router + NAT gateway) and DB connection variables in [project-vars](project-vars)
+- VPC (two networks, router + NAT gateway) in [project-vars](project-vars) and DB connection variables in [project-vars](project-vars) / vault-encrypted [secrets.yaml](secrets.yaml)
 
 1. Wrote [5-provision-ansible.yaml](5-provision-ansible.yaml) and ran it (`ansible-playbook 5-provision-ansible.yaml`) to
    - create a dedicated T Cloud VPC: a public and a private network, plus a router with an external gateway
@@ -90,7 +90,7 @@ Prerequisites:
 - A CCE cluster on T-Cloud Public (region `eu-de`), created with the Terraform env `environments/k8s` in the `12-terraform-exercises` repo (VPC + NAT, 3x `s3.large.2` nodes, Everest CSI → StorageClass `csi-disk`)
 - A kubeconfig for the cluster's public API endpoint (`https://<API-EIP>:5443`), generated with `mise exec -- bash generate-kubeconfig.sh k8s` in that repo; path set as `kubeconfig_path` in [project-vars](project-vars)
 - Local `podman` for building and pushing the image (this machine uses podman, not docker)
-- A TCP SWR registry org + repo with a temporary login (SWR console → Generate Login Command, 24 h validity): `registry_host`/`registry_org`/`registry_user`/`registry_password` in [project-vars](project-vars)
+- A TCP SWR registry org + repo with a temporary login (SWR console → Generate Login Command, 24 h validity): `registry_host`/`registry_org` in [project-vars](project-vars), `registry_user`/`registry_password` in vault-encrypted [secrets.yaml](secrets.yaml)
 - Ansible (14.x) with the `kubernetes.core` and `containers.podman` collections
 
 1. Wrote [7-deploy-k8s.yaml](./7-deploy-k8s.yaml) and ran it (`ansible-playbook 7-deploy-k8s.yaml`) to

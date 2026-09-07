@@ -5,6 +5,7 @@
   gather_facts: true
   vars_files:
     - project-vars
+    - secrets.yaml
   vars:
     mysql_databases:
       - name: "{{ db_name }}"
@@ -51,6 +52,7 @@
   gather_facts: true
   vars_files:
     - project-vars
+    - secrets.yaml
   tasks:
     - name: Update all packages
       apt:
