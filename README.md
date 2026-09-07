@@ -81,18 +81,39 @@ Prerequisites:
    - write the `inventory-web-db` inventory file for the web and DB servers
 1. Wrote and ran [5-configure-web-db.yaml](ansible/5-configure-web-db.yaml) from the Ansible control server (the DB private IP is not reachable from outside the VPC) (`ansible-playbook -i inventory-web-db 5-configure-web-db.yaml`) to
    - install and start MySQL on the DB server using an existing mysql role, create the app database and user and seed the `team_members` table (idempotent via `INSERT IGNORE`)
-   - deploy and run the Java web application on the web server (it reads the database over the VPC), and verify the app responds on port 8080
+    - deploy and run the Java web application on the web server (it reads the database over the VPC), and verify the app responds on port 8080
 
-## 6. Deploying Java MySQL Application in Kubernetes
+## 7. Deploying the Java + MySQL App to T-Cloud CCE (Kubernetes)
 
-1. Added [Dockerfile](Dockerfile) for Java app, built and pushed image to ECR repository
-1. Created K8s configuration files for deployments (MySQL DB app with 1 replica), services for Java and MySQL applications as well as configMap and Secret for the DB connectivity.
-1. Created K8s configuration files for nginx-ingress controller chart and ingress for the java app.
-1. Created an EKS cluster using eksctl: `eksctl create cluster -f cluster.yaml`
-1. Wrote [deploy-k8s.yaml](deploy-k8s.yaml) playbook to
-    - deploy everything in the EKS cluster
+Prerequisites:
 
-## 7. Deploying MySQL Chart in Kubernetes
+- A CCE cluster on T-Cloud Public (region `eu-de`), created with the Terraform env `environments/k8s` in the `12-terraform-exercises` repo (VPC + NAT, 3x `s3.large.2` nodes, Everest CSI → StorageClass `csi-disk`)
+- A kubeconfig for the cluster's public API endpoint (`https://<API-EIP>:5443`), generated with `mise exec -- bash generate-kubeconfig.sh k8s` in that repo; path set as `kubeconfig_path` in [project-vars](project-vars)
+- Local `podman` for building and pushing the image (this machine uses podman, not docker)
+- A TCP SWR registry org + repo with a temporary login (SWR console → Generate Login Command, 24 h validity): `registry_host`/`registry_org`/`registry_user`/`registry_password` in [project-vars](project-vars)
+- Ansible (14.x) with the `kubernetes.core` and `containers.podman` collections
 
-1. Wrote [deploy-mysql.yaml](deploy-mysql.yaml) and ran it (`ansible-playbook deploy-mysql.yaml`) to
-    - deploy a MySQL DB with 3 replicas using a helm chart in place of the currently running single MySQL instance
+1. Wrote [7-deploy-k8s.yaml](./7-deploy-k8s.yaml) and ran it (`ansible-playbook 7-deploy-k8s.yaml`) to
+    - build the app locally (`gradle clean build`)
+    - build the image from [Dockerfile](Dockerfile) (`eclipse-temurin:17-jre` + the jar from `settings.gradle` rootProject.name) and push it to SWR (`swr.eu-de.otc.t-systems.com/test2/java-mysql-app:1.0-SNAPSHOT`)
+    - create the `myapp` namespace and a `registry-creds` pull secret
+    - install the `ingress-nginx` Helm chart into the `ingress` namespace with a public OTC ELB (`elb.class: union`, `elb.autocreate` public EIP), with a rescue that removes the admission webhook on the known first-install failure and retries
+    - deploy the db ConfigMap/Secret, the `team_members` seed ConfigMap, a single-replica MySQL (port 3306, seed mounted at `/docker-entrypoint-initdb.d`) and the Java app (templated from [k8s/java-app.yaml.j2](k8s/java-app.yaml.j2))
+    - deploy the [Ingress](k8s/ingress.yaml) (no host, `pathType: Prefix`, so the app is reachable directly via the ELB IP)
+    - wait for MySQL to be Ready and the Java deployment to be Available, then print the app URL
+
+   Verified: `curl http://<ELB-IP>/get-data` returns the seeded `team_members` rows (alice/bob/charlie) and `curl http://<ELB-IP>/` returns 200.
+
+## 8. Replacing MySQL with a 3-Replica Bitnami Helm Chart
+
+Prerequisites:
+
+- Exercise 7 completed (single-replica MySQL + Java app deployed, ELB IP known)
+
+1. Wrote [8-deploy-mysql.yaml](./8-deploy-mysql.yaml) and ran it (`ansible-playbook 8-deploy-mysql.yaml`) to
+    - remove the single-replica MySQL deployment and service
+    - add the Bitnami Helm repository and install the `mysql` chart (pinned 9.4.0, `bitnamilegacy/mysql:8.0.30`) as `mysql-release` with `architecture: replication` (1 primary + 2 secondaries), per-replica RWO PVCs on `csi-disk` and `team_members` seeded via top-level `initdbScripts` ([k8s-helm/mysql-chart-values-tcp.yaml](k8s-helm/mysql-chart-values-tcp.yaml))
+    - update the `db-config` ConfigMap to the chart primary service DNS name (`mysql-release-primary.myapp`)
+    - redeploy the Java app (a `restartedAt` annotation, re-evaluated on every run, forces a rolling restart so the pods pick up the new DB service name) and wait until it is Available again
+
+    Verified: `mysql-release-primary-0` + 2 secondaries Running with 3 Bound `csi-disk` PVCs; both secondaries show `Replica_IO_Running: Yes`, `Replica_SQL_Running: Yes`, `Seconds_Behind_Source: 0`; `curl http://<ELB-IP>/get-data` still returns the seeded rows.
