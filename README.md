@@ -87,19 +87,18 @@ Prerequisites:
 1. Wrote [5-configure-ansible.yaml](5-configure-ansible.yaml) and ran it (`ansible-playbook -i inventory_openstack.yaml 5-configure-ansible.yaml`) to
    - configure the Ansible control server with all necessary tools (Ansible, OpenStack SDK, collections and the mysql role)
    - copy the playbooks, `project-vars`, `ansible.cfg`, the app jar, OpenStack credentials and the SSH private key for the web and DB servers to the control server
- 1. Wrote [5-provision-web-db.yaml](ansible/5-provision-web-db.yaml) and ran it on the Ansible control server from local (`ssh -i <tcloud_private_key> ubuntu@<control-FIP> "cd /home/ubuntu/playbooks && ansible-playbook -i localhost 5-provision-web-db.yaml"`) to
+1. Wrote [5-provision-web-db.yaml](ansible/5-provision-web-db.yaml) and ran it on the Ansible control server from local (`ssh -i <tcloud_private_key> ubuntu@<control-FIP> "cd /home/ubuntu/playbooks && ansible-playbook -i localhost 5-provision-web-db.yaml"`) to
    - provision the web server (public network, with an EIP) and the DB server (private network, no public IP, Internet egress via the NAT gateway)
    - write the `inventory-web-db` inventory file for the web and DB servers
- 1. Wrote and ran [5-configure-web-db.yaml](ansible/5-configure-web-db.yaml) on the Ansible control server from local (`ssh -i <tcloud_private_key> ubuntu@<control-FIP> "cd /home/ubuntu/playbooks && ansible-playbook -i inventory-web-db 5-configure-web-db.yaml"`) to
-    - install and start MySQL on the DB server using an existing mysql role, create the app database and user and seed the `team_members` table (idempotent via `INSERT IGNORE`)
-    - deploy and run the Java web application on the web server (it reads the database over the VPC), and verify the app responds on port 8080
+1. Wrote and ran [5-configure-web-db.yaml](ansible/5-configure-web-db.yaml) on the Ansible control server from local (`ssh -i <tcloud_private_key> ubuntu@<control-FIP> "cd /home/ubuntu/playbooks && ansible-playbook -i inventory-web-db 5-configure-web-db.yaml"`) to
+   - install and start MySQL on the DB server using an existing mysql role, create the app database and user and seed the `team_members` table (idempotent via `INSERT IGNORE`)
+   - deploy and run the Java web application on the web server (it reads the database over the VPC), and verify the app responds on port 8080
 
-    Verified: `curl http://<web-FIP>:8080/get-data` returns 200 with the seeded `team_members` rows, the web server has a floating IP and the DB server is private-only (Internet egress via the NAT gateway), all three servers ACTIVE; re-run reports changed only for the `CREATE TABLE` query and the app stop + start, both non-idempotent by design.
+   Verified: `curl http://<web-FIP>:8080/get-data` returns 200 with the seeded `team_members` rows, the web server has a floating IP and the DB server is private-only (Internet egress via the NAT gateway), all three servers ACTIVE; re-run reports changed only for the `CREATE TABLE` query and the app stop + start, both non-idempotent by design.
 
-    Exercise trade-offs (fine for a lab, not for production):
+   Exercise trade-offs (fine for a lab, not for production):
     - `5-configure-ansible.yaml` copies the vault password and OpenStack `clouds.yaml` to the control server — anyone with access to that server can decrypt every secret and provision the whole cloud.
     - `ansible.cfg` sets `host_key_checking = False` (standard for throwaway exercise servers; disables SSH MITM protection).
-    - This repo is public and contains personal/team IPs (`hosts`, `my_ip` and the Nexus URL in `project-vars`) — minor privacy exposure.
 
 ## 6. Deploying the Java + MySQL App to T-Cloud CCE (Kubernetes)
 
