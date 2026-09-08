@@ -5,19 +5,31 @@
   vars_files:
   - project-vars
   - secrets.yaml
+  vars:
+    # override with: -e jar_path=/path/to/other.jar
+    # NOTE: Nexus requires the file name to match the URL path, so overrides
+    # must keep the {{ artifact_name }}-{{ artifact_version }}.jar name
+    jar_path: "build/libs/{{ app_name }}.jar"
+    expected_jar_name: "{{ artifact_name }}-{{ artifact_version }}.jar"
   tasks:
     - name: Ensure jar exists
       stat:
-        path: "build/libs/{{ app_name }}.jar"
+        path: "{{ jar_path }}"
       register: file_data
     - name: Report a missing file
       debug:
-        msg: "Provided jar file does not exist"
+        msg: "Provided jar file does not exist: {{ jar_path }}"
       when: not file_data.stat.exists
     - name: Stop the upload
       when: not file_data.stat.exists
       fail:  
         msg: "This step must fail due to unmet prerequisites." 
+    - name: Ensure jar file name matches the Nexus URL path
+      when:
+      - file_data.stat.exists
+      - file_data.stat.path | basename != expected_jar_name
+      fail:
+        msg: "jar file name must be '{{ expected_jar_name }}' (Nexus requires the file name to match the URL path), got '{{ file_data.stat.path | basename }}'"
     - name: Upload JAR file to Nexus
       # This protects password from being displayed in task output. Comment out if you want to see the output for debugging
       no_log: True
@@ -29,7 +41,7 @@
         url: "{{ nexus_url }}/repository/maven-snapshots/com/my/{{ artifact_name }}/{{ artifact_version }}/{{ artifact_name }}-{{ artifact_version }}.jar"
         
         method: PUT
-        src: ./build/libs/{{ app_name }}.jar
+        src: "{{ jar_path }}"
         user: "{{ nexus_user }}"
         password: "{{ nexus_password }}"
         force_basic_auth: yes
@@ -37,6 +49,8 @@
         # With default "raw" body_format request form is too large, and causes 500 server error on Nexus (Form is larger than max length 200000), So we are setting it to 'json'
         body_format: json
         status_code: 201
+        # 22 MB upload takes ~30-60 s; the default 10 s socket timeout kills it on cold instances
+        timeout: 300
       register: response
 
     - name: Print response

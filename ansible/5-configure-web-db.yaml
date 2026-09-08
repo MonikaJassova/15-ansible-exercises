@@ -69,6 +69,13 @@
       shell: pgrep -f "{{ app_name }}\.jar" | xargs -r kill -TERM || true
       ignore_errors: yes
 
+    - name: Wait until the old process releases port 8080
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ app_port }}"
+        state: stopped
+        timeout: 30
+
     - name: Copy jar artifact
       copy:
         src: "/home/ubuntu/{{ app_name }}.jar"

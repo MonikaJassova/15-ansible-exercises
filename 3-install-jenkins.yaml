@@ -8,7 +8,7 @@
     - name: Launch ECS instance
       openstack.cloud.server:
         cloud: "{{ tcloud_cloud }}"
-        name: JenkinsServer
+        name: "JenkinsServer-{{ os_flavour }}"
         image: "{{ tcloud_images[os_flavour] }}"
         flavor: "{{ tcloud_flavor }}"
         key_name: "{{ tcloud_key_name }}"
@@ -31,6 +31,11 @@
         network: "{{ tcloud_external_network }}"
         server: "{{ instance.server.name | default('JenkinsServer') }}"
       register: fip
+
+    - name: Fail if floating IP was not allocated
+      fail:
+        msg: "Floating IP allocation for the Jenkins server failed; cannot continue."
+      when: fip.floating_ip is not defined
 
     - name: Add new instance to host group
       add_host:

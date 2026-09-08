@@ -43,10 +43,20 @@
     - secrets.yaml
   tasks:
     - name: Stop existing Java app process
-      shell: pgrep -f "{{ app_name }}\.jar" | xargs -r kill -TERM || true
+      # [r] + "java -jar" prefix prevent pgrep -f from matching its own
+      # bash -c wrapper; no user scope on purpose so instances left by
+      # other users (same port 8080) are cleaned up too
+      shell: pgrep -f "java -jar.*{{ app_name }}\.ja[r]" | xargs -r kill -TERM || true
       async: 30
       poll: 0
       ignore_errors: yes
+
+    - name: Wait until the old process releases port 8080
+      wait_for:
+        host: 127.0.0.1
+        port: 8080
+        state: stopped
+        timeout: 30
 
     - name: Find JAR files in home
       find:
@@ -87,7 +97,17 @@
       poll: 0
       register: result
     - debug: msg="{{ result }}"
-    - name: Check that app is running
-      shell: ps aux | grep java
+    - name: Check that app process is running
+      # [r] prevents pgrep -f from matching its own bash -c wrapper;
+      # -u scopes the check to the app user
+      shell: pgrep -u "{{ linux_user }}" -f "java -jar {{ user_home_dir }}/{{ app_name }}\.ja[r]"
       register: app_status
-    - debug: msg={{app_status.stdout_lines}}
+      failed_when: false
+      changed_when: false
+    - debug:
+        # Ex 1 has no database (introduced in Ex 5); the app needs MySQL to
+        # stay up, so this verifies deployment, not app health.
+        msg: >-
+          {{ app_status.rc == 0
+             and "App process is running"
+             or "App process is not running (expected in Ex 1: no database yet)" }}

@@ -1,7 +1,7 @@
 ---
-# Exercise 7: deploy the Java + MySQL application to the T-Cloud Public CCE cluster.
-# Run from repo root:  mise exec -- ansible-playbook 7-deploy-k8s.yaml
-- name: "Ex 7: Deploy Java and MySQL app to T-Cloud CCE"
+# Exercise 6: deploy the Java + MySQL application to the T-Cloud Public CCE cluster.
+# Run from repo root:  mise exec -- ansible-playbook 6-deploy-k8s.yaml
+- name: "Ex 6: Deploy Java and MySQL app to T-Cloud CCE"
   hosts: localhost
   gather_facts: false
   vars_files:
@@ -188,6 +188,18 @@
       until: >-
         lb_svc.resources | length > 0 and
         lb_svc.resources[0].status.loadBalancer.ingress is defined
+
+    - name: Verify app responds with team data via the ingress
+      uri:
+        url: "http://{{ lb_svc.resources[0].status.loadBalancer.ingress[0].ip }}/get-data"
+        status_code: 200
+      register: app_check
+      retries: 12
+      delay: 10
+      until: app_check.status == 200
+
+    - debug:
+        msg: "{{ app_check.json }}"
 
     - name: Application URL
       debug:

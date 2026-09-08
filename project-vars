@@ -4,7 +4,7 @@ app_name: build-tools-exercises-1.0-SNAPSHOT
 
 # Nexus (password in vault-encrypted secrets.yaml)
 nexus_user: monika
-nexus_url: http://164.30.24.12:8081
+nexus_url: http://164.30.18.88:8081
 artifact_name: build-tools-exercises
 artifact_version: 1.0-SNAPSHOT
 
@@ -43,11 +43,11 @@ nat_gateway_name: ansible-vpc-nat
 my_ip: 164.30.14.196/32
 app_port: 8080
 
-# K8s on T-Cloud Public CCE (exercises 7-8)
+# K8s on T-Cloud Public CCE (exercises 6-7)
 k8s_namespace: myapp
 kubeconfig_path: /home/mjassova/12-terraform-exercises/environments/k8s/kubeconfig.yaml
 registry_host: swr.eu-de.otc.t-systems.com
-registry_org: test2 # existing SWR org (user-confirmed)
+registry_org: test2 # existing SWR org
 # registry_user / registry_password (SWR "Generate Login Command") in vault-encrypted secrets.yaml
 image_name: java-mysql-app
 image_tag: 1.0-SNAPSHOT
