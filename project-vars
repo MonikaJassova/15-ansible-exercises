@@ -2,10 +2,9 @@ linux_user: monika
 user_home_dir: /home/{{linux_user}}
 app_name: build-tools-exercises-1.0-SNAPSHOT
 
-# Nexus
+# Nexus (password in vault-encrypted secrets.yaml)
 nexus_user: monika
-nexus_password: REDACTED_NEXUS_PASSWORD
-nexus_url: http://164.30.24.12:8081
+nexus_url: http://164.30.18.88:8081
 artifact_name: build-tools-exercises
 artifact_version: 1.0-SNAPSHOT
 
@@ -28,10 +27,9 @@ control_server_key_path: /home/ubuntu/.ssh/tcloud-plain
 tcloud_security_group: sg-mjassova
 tcloud_volume_size_gb: 20
 
-# MySQL connection for the Java app
+# MySQL connection for the Java app (password in vault-encrypted secrets.yaml)
 db_server: "db_host"
 db_user: "appuser"
-db_password: "REDACTED_DB_PASSWORD"
 db_name: "buildtools"
 
 # Section 5: dedicated T-Cloud VPC (two networks + one NAT router) for Ansible control plane + web/DB
@@ -44,3 +42,13 @@ vpc_router_name: ansible-vpc-router
 nat_gateway_name: ansible-vpc-nat
 my_ip: 164.30.14.196/32
 app_port: 8080
+
+# K8s on T-Cloud Public CCE (exercises 6-7)
+k8s_namespace: myapp
+kubeconfig_path: /home/mjassova/12-terraform-exercises/environments/k8s/kubeconfig.yaml
+registry_host: swr.eu-de.otc.t-systems.com
+registry_org: test2 # existing SWR org
+# registry_user / registry_password (SWR "Generate Login Command") in vault-encrypted secrets.yaml
+image_name: java-mysql-app
+image_tag: 1.0-SNAPSHOT
+elb_class: union # union = shared LB; performance = dedicated LB

@@ -94,6 +94,23 @@
         wait: true
       when: nat_gw is none
 
+    - name: Check SNAT rules on a pre-existing NAT gateway
+      opentelekomcloud.cloud.nat_snat_rule_info:
+        cloud: "{{ tcloud_cloud }}"
+        gateway: "{{ nat_gateway_name }}"
+      register: snat_info
+      when: nat_gw is not none
+
+    - name: Fail if a pre-existing gateway has no SNAT rule for the private network
+      fail:
+        msg: >-
+          NAT gateway {{ nat_gateway_name }} exists but has no SNAT rule for
+          private network {{ vpc_private_net }}; the DB server would have no
+          internet access. Add the SNAT rule manually and re-run.
+      when:
+        - nat_gw is not none
+        - snat_info.snat_rules | default([]) | selectattr('network_id', 'equalto', private_net.network.id) | list | length == 0
+
     - name: Ensure security group for Ansible control plane
       openstack.cloud.security_group:
         cloud: "{{ tcloud_cloud }}"

@@ -98,6 +98,18 @@
         src: ./project-vars
         dest: "/home/{{ os_user }}/playbooks/project-vars"
 
+    - name: Copy vault-encrypted secrets to playbooks dir
+      copy:
+        src: ./secrets.yaml
+        dest: "/home/{{ os_user }}/playbooks/secrets.yaml"
+        mode: "0600"
+
+    - name: Copy vault password file to playbooks dir
+      copy:
+        src: ./vault-pass
+        dest: "/home/{{ os_user }}/playbooks/vault-pass"
+        mode: "0400"
+
     - name: Copy ansible.cfg to server
       copy:
         src: ./ansible.cfg

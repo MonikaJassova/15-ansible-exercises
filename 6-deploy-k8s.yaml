@@ -1,0 +1,208 @@
+---
+# Exercise 6: deploy the Java + MySQL application to the T-Cloud Public CCE cluster.
+# Run from repo root:  mise exec -- ansible-playbook 6-deploy-k8s.yaml
+- name: "Ex 6: Deploy Java and MySQL app to T-Cloud CCE"
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - project-vars
+    - secrets.yaml
+  vars:
+    image_ref: "{{ registry_host }}/{{ registry_org }}/{{ image_name }}:{{ image_tag }}"
+    ingress_release: ingress-controller
+    docker_config_json: >-
+      {"auths": {"{{ registry_host }}": {
+        "username": "{{ registry_user }}",
+        "password": "{{ registry_password }}",
+        "auth": "{{ (registry_user ~ ':' ~ registry_password) | b64encode }}"
+      }}}
+  tasks:
+    - name: Build Gradle application
+      command: gradle clean build
+
+    - name: Login to the container registry (writes ~/.config/containers/auth.json)
+      containers.podman.podman_login:
+        registry: "{{ registry_host }}"
+        username: "{{ registry_user }}"
+        password: "{{ registry_password }}"
+
+    - name: Build and push the application image
+      containers.podman.podman_image:
+        name: "{{ image_ref }}"
+        path: .
+        push: true
+
+    - name: Ensure namespace exists
+      kubernetes.core.k8s:
+        name: "{{ k8s_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Create registry pull secret
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          type: kubernetes.io/dockerconfigjson
+          metadata:
+            name: registry-creds
+            namespace: "{{ k8s_namespace }}"
+          data:
+            .dockerconfigjson: "{{ docker_config_json | b64encode }}"
+
+    - name: Add ingress-nginx Helm repository
+      kubernetes.core.helm_repository:
+        name: ingress-nginx
+        repo_url: https://kubernetes.github.io/ingress-nginx
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Deploy nginx ingress controller (OTC ELB annotations)
+      block:
+        - name: Install ingress-nginx chart
+          kubernetes.core.helm:
+            name: "{{ ingress_release }}"
+            chart_ref: ingress-nginx/ingress-nginx
+            release_namespace: ingress
+            create_namespace: true
+            kubeconfig: "{{ kubeconfig_path }}"
+            wait: true
+            wait_timeout: 10m
+            values:
+              controller:
+                service:
+                  type: LoadBalancer
+                  annotations:
+                    kubernetes.io/elb.class: "{{ elb_class }}"
+                    kubernetes.io/elb.autocreate: '{"type": "public", "bandwidth_name": "k8s-ingress-bandwidth", "bandwidth_chargemode": "traffic", "bandwidth_size": 5, "bandwidth_sharetype": "PER", "eip_type": "5_bgp"}'
+      rescue:
+        - name: Remove admission webhook (known first-install issue)
+          kubernetes.core.k8s:
+            api_version: admissionregistration.k8s.io/v1
+            kind: ValidatingWebhookConfiguration
+            name: ingress-nginx-controller-admission
+            state: absent
+            kubeconfig: "{{ kubeconfig_path }}"
+          ignore_errors: true
+        - name: Retry ingress-nginx chart install
+          kubernetes.core.helm:
+            name: "{{ ingress_release }}"
+            chart_ref: ingress-nginx/ingress-nginx
+            release_namespace: ingress
+            create_namespace: true
+            kubeconfig: "{{ kubeconfig_path }}"
+            wait: true
+            wait_timeout: 10m
+            values:
+              controller:
+                service:
+                  type: LoadBalancer
+                  annotations:
+                    kubernetes.io/elb.class: "{{ elb_class }}"
+                    kubernetes.io/elb.autocreate: '{"type": "public", "bandwidth_name": "k8s-ingress-bandwidth", "bandwidth_chargemode": "traffic", "bandwidth_size": 5, "bandwidth_sharetype": "PER", "eip_type": "5_bgp"}'
+
+    - name: Deploy db ConfigMap
+      kubernetes.core.k8s:
+        src: k8s/db-config.yaml
+        state: present
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Deploy db Secret
+      kubernetes.core.k8s:
+        src: k8s/db-secret.yaml
+        state: present
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Deploy db init SQL (seed team_members)
+      kubernetes.core.k8s:
+        src: k8s/db-init.yaml
+        state: present
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Deploy MySQL (single replica)
+      kubernetes.core.k8s:
+        src: k8s/mysql.yaml
+        state: present
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Deploy Java application (templated image)
+      kubernetes.core.k8s:
+        definition: "{{ lookup('template', 'k8s/java-app.yaml.j2') }}"
+        state: present
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: "Deploy ingress (no host, reachable by ELB IP)"
+      kubernetes.core.k8s:
+        src: k8s/ingress.yaml
+        state: present
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Wait for MySQL pod to be Running and Ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ k8s_namespace }}"
+        label_selectors: app=mysql
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: mysql_pods
+      retries: 36
+      delay: 10
+      until: >-
+        mysql_pods.resources | length > 0 and
+        (mysql_pods.resources[0].status.conditions
+         | selectattr('type', 'equalto', 'Ready')
+         | selectattr('status', 'equalto', 'True') | list | length) == 1
+
+    - name: Wait for Java app deployment to be Available
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: java-app-deployment
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: java_dep
+      retries: 30
+      delay: 10
+      until: java_dep.resources[0].status.availableReplicas | default(0) == 1
+
+    - name: Get ELB external IP of the ingress controller
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        name: "{{ ingress_release }}-ingress-nginx-controller"
+        namespace: ingress
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: lb_svc
+      retries: 36
+      delay: 10
+      until: >-
+        lb_svc.resources | length > 0 and
+        lb_svc.resources[0].status.loadBalancer.ingress is defined
+
+    - name: Verify app responds with team data via the ingress
+      uri:
+        url: "http://{{ lb_svc.resources[0].status.loadBalancer.ingress[0].ip }}/get-data"
+        status_code: 200
+      register: app_check
+      retries: 12
+      delay: 10
+      until: app_check.status == 200
+
+    - debug:
+        msg: "{{ app_check.json }}"
+
+    - name: Application URL
+      debug:
+        msg: >-
+          App URL: http://{{ lb_svc.resources[0].status.loadBalancer.ingress[0].ip }}/
+          Verify with: curl -s http://{{ lb_svc.resources[0].status.loadBalancer.ingress[0].ip }}/get-data

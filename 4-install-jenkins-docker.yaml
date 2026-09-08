@@ -63,12 +63,6 @@
       register: result
     - debug: msg={{ result.container.Id }}
 
-    - name: Set Docker permission for Jenkins user
-      become: yes
-      file:
-        path: "/var/run/docker.sock"
-        mode: "666"
-
     - name: Get volume info
       community.docker.docker_volume_info:
         name: jenkins_home

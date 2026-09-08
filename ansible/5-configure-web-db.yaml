@@ -5,6 +5,7 @@
   gather_facts: true
   vars_files:
     - project-vars
+    - secrets.yaml
   vars:
     mysql_databases:
       - name: "{{ db_name }}"
@@ -51,6 +52,7 @@
   gather_facts: true
   vars_files:
     - project-vars
+    - secrets.yaml
   tasks:
     - name: Update all packages
       apt:
@@ -66,6 +68,13 @@
     - name: Stop existing Java app process
       shell: pgrep -f "{{ app_name }}\.jar" | xargs -r kill -TERM || true
       ignore_errors: yes
+
+    - name: Wait until the old process releases port 8080
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ app_port }}"
+        state: stopped
+        timeout: 30
 
     - name: Copy jar artifact
       copy:

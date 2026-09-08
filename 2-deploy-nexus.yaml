@@ -1,0 +1,254 @@
+---
+- name: Install net-tools
+  hosts: nexus
+  become: yes
+  tasks:
+    - name: Update apt repo and cache
+      apt: update_cache=yes force_apt_get=yes cache_valid_time=1 # equivalent of apt-get update
+    - name: Install net-tools
+      apt: name=net-tools
+
+- name: Download and unpack Nexus installer
+  hosts: nexus
+  become: yes
+  vars:
+    nexus_path: /opt/nexus
+  tasks:
+    - name: Check nexus folder stats
+      stat:
+        path: "{{nexus_path}}"
+      register: stat_result
+    - name: Download Nexus
+      get_url:
+        url: https://download.sonatype.com/nexus/3/nexus-3.96.0-09-linux-x86_64.tar.gz
+        dest: /opt/
+      register: download_result
+      when: not stat_result.stat.exists
+    - name: Untar Nexus installer
+      when: not stat_result.stat.exists
+      unarchive:
+        src: "{{download_result.dest}}" # to avoid hardcoding installer version
+        dest: /opt/
+        remote_src: True
+    - name: Find nexus folder # created by unpacking
+      find:
+        paths: /opt
+        pattern: "nexus-*" # regex
+        file_type: directory
+      register: find_result
+    # - debug: msg={{find_result}} to see the whole returned value
+    - name: Rename nexus folder
+      shell: mv {{find_result.files[0].path}} {{nexus_path}}
+      when: not stat_result.stat.exists # conditional
+
+- name: Create nexus user to own nexus folders
+  hosts: nexus
+  become: yes
+  tasks:
+    - name: Ensure nexus group exists
+      group:
+        name: nexus
+        state: present
+
+    - name: Create nexus user
+      user:
+        name: nexus
+        group: nexus
+    - name: Make nexus user owner of nexus folder
+      file:
+        path: /opt/nexus
+        state: directory
+        owner: nexus
+        group: nexus
+        recurse: yes
+    - name: Make nexus user owner of sonatype-work folder
+      file:
+        path: /opt/sonatype-work
+        state: directory
+        owner: nexus
+        group: nexus
+        recurse: yes
+
+- name: Start nexus with nexus user
+  hosts: nexus
+  become: True
+  tasks:
+    - name: Check if nexus.rc exists
+      stat:
+        path: /opt/nexus/bin/nexus.rc
+      register: file_status
+
+    - name: Create nexus.rc if it does not exist
+      file:
+        path: /opt/nexus/bin/nexus.rc
+        state: touch
+      when: not file_status.stat.exists
+
+    - name: Set run_as_user for nexus
+      lineinfile:
+        path: /opt/nexus/bin/nexus.rc
+        regexp: '^#run_as_user=""'
+        line: run_as_user="nexus"
+    # nexus start has no already-running check and a second start corrupts the pidfile
+    - name: Check if nexus is already running
+      command: pgrep -f "sonatype-nexus-repositor[y]"
+      register: nexus_proc
+      failed_when: false
+    - name: Start nexus
+      command: /opt/nexus/bin/nexus start
+      when: nexus_proc.rc != 0
+
+- name: Verify nexus is running
+  hosts: nexus
+  tasks:
+    - name: Check processes
+      shell: ps aux | grep nexus
+      register: app_status
+    - debug: msg={{app_status.stdout_lines}}
+    - name: Wait for Nexus to start listening on 8081
+      wait_for:
+        host: 127.0.0.1
+        port: 8081
+        state: started
+        timeout: 300
+    - name: Check active connections
+      shell: netstat -tlpn
+      register: netstat_status
+    - debug: msg={{netstat_status.stdout_lines}}
+
+- name: Configure nexus (EULA, user, role)
+  hosts: nexus
+  become: yes
+  vars_files:
+  - project-vars
+  - secrets.yaml
+  vars:
+    # runs on the nexus host itself, so use localhost instead of the public IP
+    nexus_api_url: "http://127.0.0.1:8081"
+    nexus_role: monika-uploads
+    # upload requires read+add+edit (edit is the actual write privilege)
+    nexus_snapshots_privileges:
+    - nx-repository-view-maven2-maven-snapshots-read
+    - nx-repository-view-maven2-maven-snapshots-add
+    - nx-repository-view-maven2-maven-snapshots-edit
+  tasks:
+    # admin.password is written during first-time bootstrap, which lags behind the port opening
+    - name: Wait for admin password file to appear
+      wait_for:
+        path: /opt/sonatype-work/nexus3/admin.password
+        state: present
+        timeout: 300
+    - name: Check if admin password file exists
+      stat:
+        path: /opt/sonatype-work/nexus3/admin.password
+      register: admin_pw_file
+    - name: Read auto-generated admin password
+      slurp:
+        src: /opt/sonatype-work/nexus3/admin.password
+      register: admin_pw_raw
+      when: admin_pw_file.stat.exists
+    - name: Fail if admin password is unavailable
+      when: not admin_pw_file.stat.exists
+      fail:
+        msg: "admin.password file is missing (admin password was changed) - configure nexus manually"
+    - name: Store admin password
+      set_fact:
+        nexus_admin_password: "{{ admin_pw_raw.content | b64decode | trim }}"
+
+    - name: Get EULA status
+      uri:
+        url: "{{ nexus_api_url }}/service/rest/v1/system/eula"
+        user: admin
+        password: "{{ nexus_admin_password }}"
+        force_basic_auth: yes
+      register: eula
+    - name: Accept EULA
+      uri:
+        url: "{{ nexus_api_url }}/service/rest/v1/system/eula"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_password }}"
+        force_basic_auth: yes
+        body_format: json
+        body: "{{ eula.json | combine({'accepted': true}) }}"
+        status_code: 204
+      when: not eula.json.accepted
+
+    - name: List users
+      uri:
+        url: "{{ nexus_api_url }}/service/rest/v1/security/users"
+        user: admin
+        password: "{{ nexus_admin_password }}"
+        force_basic_auth: yes
+      register: users
+    - name: Ensure nexus user exists
+      uri:
+        url: "{{ nexus_api_url }}/service/rest/v1/security/users"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_password }}"
+        force_basic_auth: yes
+        body_format: json
+        body:
+          userId: "{{ nexus_user }}"
+          firstName: Monika
+          lastName: User
+          emailAddress: monika@example.org
+          source: default
+          status: active
+          password: "{{ nexus_password }}"
+        status_code: 200
+      when: users.json | selectattr('userId', 'equalto', nexus_user) | list | length == 0
+      no_log: True
+
+    - name: List roles
+      uri:
+        url: "{{ nexus_api_url }}/service/rest/v1/security/roles"
+        user: admin
+        password: "{{ nexus_admin_password }}"
+        force_basic_auth: yes
+      register: nexus_roles
+    - name: Ensure maven-snapshots role exists
+      uri:
+        url: "{{ nexus_api_url }}/service/rest/v1/security/roles"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_password }}"
+        force_basic_auth: yes
+        body_format: json
+        body:
+          id: "{{ nexus_role }}"
+          name: "{{ nexus_role }}"
+          description: "maven-snapshots read+add+edit for {{ nexus_user }}"
+          source: default
+          privileges: "{{ nexus_snapshots_privileges }}"
+          roles: []
+        status_code: 200
+      when: nexus_roles.json | selectattr('id', 'equalto', nexus_role) | list | length == 0
+
+    - name: Refresh user list
+      uri:
+        url: "{{ nexus_api_url }}/service/rest/v1/security/users"
+        user: admin
+        password: "{{ nexus_admin_password }}"
+        force_basic_auth: yes
+      register: users_after
+    - name: Ensure maven-snapshots role is assigned to nexus user
+      uri:
+        url: "{{ nexus_api_url }}/service/rest/v1/security/users/{{ nexus_user }}"
+        method: PUT
+        user: admin
+        password: "{{ nexus_admin_password }}"
+        force_basic_auth: yes
+        body_format: json
+        body:
+          userId: "{{ nexus_user }}"
+          firstName: Monika
+          lastName: User
+          emailAddress: monika@example.org
+          source: default
+          status: active
+          roles:
+          - "{{ nexus_role }}"
+        status_code: 204
+      when: (users_after.json | selectattr('userId', 'equalto', nexus_user) | first).roles | default([]) | select('equalto', nexus_role) | list | length == 0

@@ -1,0 +1,88 @@
+---
+# Exercise 7: replace the single-replica MySQL with a 3-replica Bitnami Helm chart
+# on the T-Cloud Public CCE cluster.
+# Run from repo root:  mise exec -- ansible-playbook 7-deploy-mysql.yaml
+- name: "Ex 7: Deploy MySQL 3-replica Helm chart to T-Cloud CCE"
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - project-vars
+  vars:
+    mysql_release: mysql-release
+  tasks:
+    - name: Guard - verify Exercise 6 was completed (db-secret present)
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: db-secret
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: db_secret
+
+    - name: Guard - fail with a clear message if Exercise 6 artifacts are missing
+      fail:
+        msg: >-
+          db-secret not found in namespace {{ k8s_namespace }}.
+          Run 6-deploy-k8s.yaml first (Exercise 6 is a prerequisite of Exercise 7).
+      when: db_secret.resources | length == 0
+
+    - name: Remove the single-replica MySQL deployment and service
+      kubernetes.core.k8s:
+        src: k8s/mysql.yaml
+        namespace: "{{ k8s_namespace }}"
+        state: absent
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Add Bitnami Helm repository
+      kubernetes.core.helm_repository:
+        name: bitnami
+        repo_url: https://charts.bitnami.com/bitnami
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Deploy MySQL Helm chart (1 primary + 2 secondaries = 3 replicas)
+      kubernetes.core.helm:
+        name: "{{ mysql_release }}"
+        chart_ref: bitnami/mysql
+        chart_version: "9.4.0"
+        release_namespace: "{{ k8s_namespace }}"
+        create_namespace: true
+        values_files:
+          - k8s-helm/mysql-chart-values-tcp.yaml
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        wait: true
+        wait_timeout: 15m
+
+    - name: Deploy adjusted db ConfigMap (chart primary service DNS name)
+      kubernetes.core.k8s:
+        src: k8s-helm/db-config.yaml
+        state: present
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Redeploy Java app (restartedAt annotation forces rolling update)
+      kubernetes.core.k8s:
+        definition: "{{ lookup('template', 'k8s/java-app.yaml.j2') }}"
+        state: present
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+
+    - name: Wait for Java app deployment to be Available again
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: java-app-deployment
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+      register: java_dep
+      retries: 30
+      delay: 10
+      until: java_dep.resources[0].status.availableReplicas | default(0) == 1
+
+    - name: Result
+      debug:
+        msg: >-
+          MySQL now runs as {{ mysql_release }}-primary + 2 secondaries in
+          namespace {{ k8s_namespace }} (DB service: {{ mysql_release }}-primary.{{ k8s_namespace }}).
+          Re-verify the Ex 6 app URL (same ELB IP): curl -s http://<ELB-IP>/get-data
